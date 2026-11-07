@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""Home Assistant WebSocket bridge for the Dr.Dabber Switch 2 Omarchy widget.
+
+stdin : NDJSON commands   {"cmd":"call","domain":"number","service":"set_value","key":"brightness","data":{"value":40}}
+stdout: NDJSON events     {"t":"conn","ok":true} | {"t":"snapshot","entities":{key:{id,state,attrs}}}
+                          {"t":"update","key":..,"state":..,"attrs":..} | {"t":"error","msg":..}
+The token is read from a file (never argv/stdout). Only entities of the dr_dabber integration can be touched,
+and only through a small allow-list of services. State is pushed by HA the moment it changes (subscribe_trigger).
+"""
+import argparse, asyncio, json, os, sys
+import aiohttp
+
+ALLOWED = {("switch", "turn_on"), ("switch", "turn_off"), ("select", "select_option"),
+           ("number", "set_value"), ("button", "press")}
+PLATFORM = "dr_dabber"
+TOKEN = ""
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def redact(text):
+    return str(text).replace(TOKEN, "***") if TOKEN else str(text)
+
+
+def ws_url(base):
+    base = base.rstrip("/")
+    if base.startswith("https://"): return "wss://" + base[8:] + "/api/websocket"
+    if base.startswith("http://"): return "ws://" + base[7:] + "/api/websocket"
+    raise ValueError("url must start with http:// or https://")
+
+
+class Bridge:
+    def __init__(self, url, token_file):
+        self.url, self.token_file = ws_url(url), os.path.expanduser(token_file)
+        self.keys = {}          # key -> entity_id
+        self.by_id = {}         # entity_id -> key
+        self.cmds = asyncio.Queue(maxsize=100)
+        self.next_id = 1
+        self.pending = {}       # request id -> description (for error reports)
+
+    def rid(self):
+        self.next_id += 1
+        return self.next_id
+
+    async def stdin_reader(self):
+        # A plain thread-backed readline works for pipes, files and /dev/null alike.
+        while True:
+            line = await asyncio.to_thread(sys.stdin.readline)
+            if not line:
+                os._exit(0)     # QML closed the pipe: the shell is gone
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("cmd") == "quit":
+                os._exit(0)
+            if isinstance(msg, dict):
+                try: self.cmds.put_nowait(msg)
+                except asyncio.QueueFull: pass
+
+    async def request(self, ws, payload):
+        i = self.rid()
+        payload["id"] = i
+        await ws.send_json(payload)
+        return i
+
+    async def call(self, ws, resp_wait, payload):
+        i = await self.request(ws, payload)
+        fut = asyncio.get_running_loop().create_future()
+        resp_wait[i] = fut
+        return await asyncio.wait_for(fut, 20)
+
+    async def session(self):
+        global TOKEN
+        TOKEN = open(self.token_file).read().strip()
+        if not TOKEN:
+            raise RuntimeError("token file is empty")
+        timeout = aiohttp.ClientTimeout(total=None, sock_connect=8)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as s, \
+                s.ws_connect(self.url, max_msg_size=8 * 1024 * 1024, heartbeat=20) as ws:
+            hello = await ws.receive_json()
+            if hello.get("type") != "auth_required":
+                raise RuntimeError("unexpected handshake")
+            await ws.send_json({"type": "auth", "access_token": TOKEN})
+            if (await ws.receive_json()).get("type") != "auth_ok":
+                raise RuntimeError("Home Assistant rejected the token")
+
+            waits = {}
+            events = asyncio.Queue()
+
+            async def pump():
+                async for m in ws:
+                    if m.type != aiohttp.WSMsgType.TEXT:
+                        continue
+                    d = json.loads(m.data)
+                    if d.get("type") == "result" and d.get("id") in waits:
+                        waits.pop(d["id"]).set_result(d)
+                    elif d.get("type") == "result" and not d.get("success", True):
+                        err = (d.get("error") or {}).get("message", "error")
+                        emit({"t": "error", "msg": redact(self.pending.pop(d.get("id"), "request") + ": " + err)})
+                    elif d.get("type") == "event":
+                        events.put_nowait(d)
+                raise ConnectionError("socket closed")
+            pump_task = asyncio.create_task(pump())
+            try:
+                reg = await self.call(ws, waits, {"type": "config/entity_registry/list"})
+                ents = [e for e in reg["result"] if e.get("platform") == PLATFORM and not e.get("disabled_by")]
+                self.keys, self.by_id = {}, {}
+                for e in ents:
+                    key = (e.get("unique_id") or "").split("_", 1)[-1]
+                    if key:
+                        self.keys[key] = e["entity_id"]
+                        self.by_id[e["entity_id"]] = key
+                if not self.keys:
+                    raise RuntimeError("no dr_dabber entities found in Home Assistant")
+                sub = await self.call(ws, waits, {"type": "subscribe_trigger",
+                                                  "trigger": {"platform": "state", "entity_id": list(self.by_id)}})
+                if not sub.get("success"):
+                    raise RuntimeError("subscribe failed")
+                sub_id = sub["id"]
+                states = await self.call(ws, waits, {"type": "get_states"})
+                snap = {}
+                for st in states["result"]:
+                    k = self.by_id.get(st["entity_id"])
+                    if k:
+                        snap[k] = {"id": st["entity_id"], "state": st["state"], "attrs": st.get("attributes", {})}
+                emit({"t": "conn", "ok": True})
+                emit({"t": "snapshot", "entities": snap})
+
+                async def send_cmds():
+                    while True:
+                        c = await self.cmds.get()
+                        if c.get("cmd") != "call":
+                            continue
+                        dom, svc, key = c.get("domain"), c.get("service"), c.get("key")
+                        data = c.get("data") if isinstance(c.get("data"), dict) else {}
+                        eid = self.keys.get(key)
+                        if (dom, svc) not in ALLOWED or not eid or not eid.startswith(dom + "."):
+                            emit({"t": "error", "msg": f"refused {dom}.{svc} {key}"})
+                            continue
+                        rid = await self.request(ws, {"type": "call_service", "domain": dom, "service": svc,
+                                                      "target": {"entity_id": eid}, "service_data": data})
+                        self.pending[rid] = f"{dom}.{svc}"
+                        if len(self.pending) > 200:
+                            self.pending.pop(next(iter(self.pending)))
+                cmd_task = asyncio.create_task(send_cmds())
+                try:
+                    while True:
+                        d = await events.get()
+                        if d.get("id") != sub_id:
+                            continue
+                        tr = ((d.get("event") or {}).get("variables") or {}).get("trigger") or {}
+                        to = tr.get("to_state")
+                        k = self.by_id.get(tr.get("entity_id"))
+                        if to and k:
+                            emit({"t": "update", "key": k, "state": to.get("state"), "attrs": to.get("attributes", {})})
+                finally:
+                    cmd_task.cancel()
+            finally:
+                pump_task.cancel()
+
+    async def run(self):
+        asyncio.create_task(self.stdin_reader())
+        backoff = 2
+        while True:
+            try:
+                await self.session()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:   # noqa: BLE001
+                emit({"t": "conn", "ok": False, "err": redact(f"{type(e).__name__}: {e}")[:200]})
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", default="http://homeassistant.local:8123")
+    ap.add_argument("--token-file", default="~/.config/homeassistant/token")
+    a = ap.parse_args()
+    asyncio.run(Bridge(a.url, a.token_file).run())

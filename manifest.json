@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "shawn.dabber",
+  "name": "Dr.Dabber",
+  "version": "0.1.0",
+  "author": "micahelj",
+  "license": "MIT",
+  "description": "Control your Dr.Dabber Switch 2 from the Omarchy bar: presets, heat, LED mode and brightness, live status via Home Assistant.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Dr.Dabber",
+    "description": "Live Switch 2 status on the bar; click for presets, heat and LED controls.",
+    "category": "Devices",
+    "aliases": [
+      "dabber",
+      "switch2",
+      "vape"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "haUrl": "http://homeassistant.local:8123",
+      "tokenFile": "~/.config/homeassistant/token",
+      "showBattery": true
+    },
+    "schema": [
+      {
+        "key": "haUrl",
+        "type": "string",
+        "label": "Home Assistant URL",
+        "defaultValue": "http://homeassistant.local:8123"
+      },
+      {
+        "key": "tokenFile",
+        "type": "path",
+        "label": "Access token file",
+        "defaultValue": "~/.config/homeassistant/token",
+        "description": "File holding a Home Assistant long-lived access token. Never put the token in shell.json."
+      },
+      {
+        "key": "showBattery",
+        "type": "boolean",
+        "label": "Show battery on the bar",
+        "defaultValue": true
+      }
+    ]
+  }
+}
