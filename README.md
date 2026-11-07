@@ -50,10 +50,10 @@ omarchy-shell shawn.dabber clean start|stop
 ```
 
 ## LED modes
-0 Stealth, 1 Calm (strip off, button light stays on), 2-9 solid colors, 10-17 and 24-28 themes
+0 Stealth (everything off, including the button light), 1 Calm (strip off, button light stays on), 2-9 solid colors, 10-17 and 24-28 themes
 (Cali Sunset, Purple Haze, Northern Lights, Vegas Nights, Blue Dream, Strawberry Cough, Florida Groves,
 Lime Light, Blue Cheese, Golden Goat, Grape Ape, Miami Vice, Purple Urkle); 18-23 are unused.
-Names come from the vendor app; Stealth has not been verified on hardware. Tile colors are approximate.
+Names come from the vendor app; Stealth and Calm are confirmed on hardware. Tile colors are approximate.
 
 ## Notes
 - Unofficial; not affiliated with Dr. Dabber. The device heats: use at your own risk. Its own auto-shutoff

@@ -1,9 +1,9 @@
 .pragma library
 
 // Switch 2 LED modes: name per mode byte (decoded from the Dr.Dabber app) and 2-3 representative colors
-// sampled from the app's mode renders. 18-23 are unused. Calm turns the LED strip off but leaves the button light on (confirmed on device); Stealth is untested.
+// sampled from the app's mode renders. 18-23 are unused. Calm turns the LED strip off but leaves the button light on (confirmed on device); Stealth turns off everything including the button light (confirmed on device).
 var modes = [
-  { n: 0,  name: "Stealth",          group: "off",   colors: [] },
+  { n: 0,  name: "Stealth",          group: "off",   colors: [], hint: "all lights off" },
   { n: 1,  name: "Calm",             group: "off",   colors: [], hint: "strip off" },
   { n: 2,  name: "Purple",           group: "solid", colors: ["#5700a3", "#7b0bd3"] },
   { n: 3,  name: "Blue",             group: "solid", colors: ["#0a37a8", "#1163ea"] },
