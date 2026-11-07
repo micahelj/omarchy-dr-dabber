@@ -4,7 +4,14 @@ An [Omarchy](https://omarchy.org/) bar widget for the **Dr.Dabber Switch 2**. Li
 (battery, and temperature while heating); click for a panel with heat start/stop, the five presets, LED
 brightness, **LED modes by name with color tiles**, haptics and cleaning assist.
 
-![panel](preview.png)
+<p align="center"><img src="screenshots/panel.png" width="360" alt="Dr.Dabber panel"></p>
+
+The bar shows a flame icon with the Switch's battery level (and the temperature while heating):
+
+<p align="center"><img src="screenshots/bar.png" width="140" alt="Bar widget"></p>
+
+The panel (it scrolls; below the LED modes are the haptics toggle and cleaning assist): heat start/stop, the five presets with
+their temperatures, LED brightness, and LED modes as quiet color tiles grouped into Off, Solid colors and Themes.
 
 It does not talk Bluetooth itself. It talks to Home Assistant, which owns the Switch's single Bluetooth
 connection through the companion integration
