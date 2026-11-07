@@ -149,7 +149,14 @@ class Bridge:
                 cmd_task = asyncio.create_task(send_cmds())
                 try:
                     while True:
-                        d = await events.get()
+                        # Wake on the socket dying too, otherwise a dropped connection (HA restart) is never noticed.
+                        getter = asyncio.ensure_future(events.get())
+                        done, _ = await asyncio.wait({getter, pump_task}, return_when=asyncio.FIRST_COMPLETED)
+                        if pump_task in done:
+                            getter.cancel()
+                            pump_task.result()          # raises -> session ends -> reconnect with backoff
+                            raise ConnectionError("socket closed")
+                        d = getter.result()
                         if d.get("id") != sub_id:
                             continue
                         tr = ((d.get("event") or {}).get("variables") or {}).get("trigger") or {}
