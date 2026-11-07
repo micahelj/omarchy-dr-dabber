@@ -4,7 +4,7 @@ An [Omarchy](https://omarchy.org/) bar widget for the **Dr.Dabber Switch 2**. Li
 (battery, and temperature while heating); click for a panel with heat start/stop, the five presets, LED
 brightness, **LED modes by name with color tiles**, haptics and cleaning assist.
 
-<p align="center"><img src="screenshots/panel.png" width="900" alt="Dr.Dabber panel, idle and heating"></p>
+<p align="center"><img src="screenshots/overview.png" alt="Dr.Dabber panel, idle and heating"></p>
 
 *Rendered illustration of the bar widget and panel (idle on the left, heating on the right).*
 
